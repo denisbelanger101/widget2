@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module specificationVersion="2.0">
+  <ModulePrefs title="DOORS Next 7.0.3 - OSLC Module XLSX Exporter"
+               description="Select DOORS Next modules and export OSLC-visible module metadata and linked/member resources to XLSX."
+               author="M365 Copilot"
+               height="760"
+               scrolling="true">
+    <Require feature="dynamic-height"/>
+    <Require feature="setprefs"/>
+  </ModulePrefs>
+  <UserPref name="rmBase" display_name="RM base URL" datatype="string" default_value="https://atkinsrealis.clm.ibmcloud.com/rm"/>
+  <UserPref name="configContext" display_name="Configuration context URL" datatype="string" default_value=""/>
+  <Content type="html"><![CDATA[
+<!doctype html>
+<html>
+<head>
+<meta charset="UTF-8" />
+<style>
+  body{font-family:Arial,Helvetica,sans-serif;margin:0;background:#f7f8fa;color:#1f2933;font-size:13px}
+  .wrap{padding:14px}.card{background:white;border:1px solid #d9dee8;border-radius:10px;padding:14px;margin-bottom:12px;box-shadow:0 1px 2px rgba(0,0,0,.04)}
+  h2{margin:0 0 8px;font-size:18px} h3{margin:0 0 8px;font-size:14px}.muted{color:#52606d}.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+  label{font-weight:600;margin-top:8px;display:block} input,textarea,button,select{font:inherit} input[type=text],textarea{width:100%;box-sizing:border-box;border:1px solid #cbd2d9;border-radius:6px;padding:8px;background:#fff}
+  textarea{min-height:95px} button{background:#0f62fe;color:#fff;border:0;border-radius:6px;padding:8px 12px;cursor:pointer;font-weight:600}button.secondary{background:#52606d}button.danger{background:#b42318}button:disabled{background:#aeb8c2;cursor:not-allowed}
+  .list{max-height:220px;overflow:auto;border:1px solid #d9dee8;border-radius:8px;background:#fbfcfe;padding:8px}.item{display:flex;gap:8px;border-bottom:1px solid #edf0f4;padding:7px 4px}.item:last-child{border-bottom:0}.uri{font-size:11px;color:#66788a;word-break:break-all}.ok{color:#027a48}.err{color:#b42318}.log{white-space:pre-wrap;background:#111827;color:#e5e7eb;border-radius:8px;padding:10px;max-height:180px;overflow:auto;font-size:12px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="card">
+    <h2>DOORS Next OSLC Module XLSX Exporter</h2>
+    <div class="muted">Add module URLs manually or load them from an OSLC query URL, select modules, then export to a real .xlsx file.</div>
+  </div>
+
+  <div class="card">
+    <h3>1. Connection</h3>
+    <label>RM base URL</label><input id="rmBase" type="text" />
+    <label>Configuration context URL (stream/baseline, optional but recommended for configuration-enabled projects)</label><input id="configContext" type="text" />
+    <div class="muted">Tip: use the <code>oslc_config.context=...</code> value from a module URL.</div>
+  </div>
+
+  <div class="card">
+    <h3>2. Module selection list</h3>
+    <label>Paste module URLs, one per line</label>
+    <textarea id="moduleUrls" placeholder="https://.../rm/resources/MD_xxxxx?...&#10;https://.../rm/resources/MD_yyyyy?..."></textarea>
+    <div class="row" style="margin-top:8px"><button onclick="addPastedModules()">Add to selection list</button><button class="secondary" onclick="selectAll(true)">Select all</button><button class="secondary" onclick="selectAll(false)">Clear selection</button><button class="danger" onclick="clearModules()">Remove all</button></div>
+    <label>Optional: OSLC query URL returning module/requirement-collection resources</label>
+    <input id="queryUrl" type="text" placeholder="https://.../rm/oslc/query/... or discovered query capability URL" />
+    <div class="row" style="margin-top:8px"><button onclick="loadModulesFromQuery()">Load modules from query URL</button></div>
+    <div id="modules" class="list" style="margin-top:10px"></div>
+  </div>
+
+  <div class="card">
+    <h3>3. Export</h3>
+    <div class="row"><button id="exportBtn" onclick="exportSelected()">Export selected modules to XLSX</button><span id="status" class="muted"></span></div>
+    <p class="muted">The XLSX contains sheets: <b>Modules</b>, <b>Artifacts</b>, and <b>Export Log</b>. Content is limited to OSLC-visible data available to the signed-in user.</p>
+    <div id="log" class="log"></div>
+  </div>
+</div>
+<script>
+var prefs = new gadgets.Prefs();
+var modules = [];
+function init(){ document.getElementById('rmBase').value=prefs.getString('rmBase')||''; document.getElementById('configContext').value=prefs.getString('configContext')||''; renderModules(); resize(); }
+function resize(){ try{ gadgets.window.adjustHeight(); }catch(e){} }
+function log(s, cls){ var el=document.getElementById('log'); el.textContent += s + "\n"; el.scrollTop=el.scrollHeight; }
+function status(s, cls){ var el=document.getElementById('status'); el.className=cls||'muted'; el.textContent=s; }
+function uniq(a){ var seen={}; return a.filter(function(x){x=x.trim(); if(!x||seen[x])return false; seen[x]=1; return true;}); }
+function normalizeUrl(u){ u=(u||'').trim(); return u.replace(/#.*$/,''); }
+function addModule(uri,title){ uri=normalizeUrl(uri); if(!uri)return; if(modules.some(function(m){return m.uri===uri;}))return; modules.push({uri:uri,title:title||uri,selected:true}); }
+function addPastedModules(){ uniq(document.getElementById('moduleUrls').value.split(/\r?\n/)).forEach(function(u){ addModule(u); }); renderModules(); }
+function clearModules(){ modules=[]; renderModules(); }
+function selectAll(v){ modules.forEach(function(m){m.selected=v;}); renderModules(); }
+function renderModules(){ var c=document.getElementById('modules'); if(!modules.length){ c.innerHTML='<span class="muted">No module added yet.</span>'; resize(); return;} c.innerHTML=modules.map(function(m,i){ return '<div class="item"><input type="checkbox" '+(m.selected?'checked':'')+' onchange="modules['+i+'].selected=this.checked"><div><b>'+esc(m.title)+'</b><div class="uri">'+esc(m.uri)+'</div></div></div>';}).join(''); resize(); }
+function esc(s){return String(s||'').replace(/[&<>"]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c];});}
+function withConfig(u){ var cfg=document.getElementById('configContext').value.trim(); if(!cfg) return u; var sep=u.indexOf('?')>=0?'&':'?'; return u + sep + 'oslc_config.context=' + encodeURIComponent(cfg); }
+function makeReq(url, accept){ return new Promise(function(resolve,reject){ var params={}; params[gadgets.io.RequestParameters.METHOD]=gadgets.io.MethodType.GET; params[gadgets.io.RequestParameters.CONTENT_TYPE]=gadgets.io.ContentType.TEXT; params[gadgets.io.RequestParameters.AUTHORIZATION]=gadgets.io.AuthorizationType.SIGNED; params[gadgets.io.RequestParameters.HEADERS]={'Accept': accept || 'application/rdf+xml, application/xml, text/xml, */*'}; gadgets.io.makeRequest(url,function(resp){ if(resp.errors && resp.errors.length){ reject(new Error(resp.errors.join('; '))); return;} if(resp.rc && (resp.rc<200 || resp.rc>=300)){ reject(new Error('HTTP '+resp.rc+' '+(resp.text||''))); return;} resolve(resp.text||''); },params); }); }
+async function loadModulesFromQuery(){ var q=document.getElementById('queryUrl').value.trim(); if(!q){ status('Enter an OSLC query URL first.','err');return;} status('Loading modules...'); log('Query: '+q); try{ var txt=await makeReq(withConfig(q)); var found=parseResourceRefs(txt); found.forEach(function(r){ addModule(r.uri, r.title); }); renderModules(); status('Loaded '+found.length+' resources.','ok'); } catch(e){ status('Load failed.','err'); log('ERROR: '+e.message); } }
+function parseXML(txt){ return new DOMParser().parseFromString(txt,'application/xml'); }
+function textOf(doc,names){ for(var i=0;i<names.length;i++){ var xs=doc.getElementsByTagName(names[i]); if(xs && xs.length && xs[0].textContent) return xs[0].textContent.trim(); } return ''; }
+function parseResourceRefs(txt){ var doc=parseXML(txt); var out=[]; var nodes=doc.getElementsByTagName('*'); for(var i=0;i<nodes.length;i++){ var n=nodes[i]; var about=n.getAttribute('rdf:about')||n.getAttribute('about')||n.getAttribute('rdf:resource')||n.getAttribute('resource'); if(about && /\/rm\/resources\//.test(about)){ var title=''; var kids=n.getElementsByTagName('*'); for(var k=0;k<kids.length;k++){ if(/title$/i.test(kids[k].nodeName) && kids[k].textContent){ title=kids[k].textContent.trim(); break; } } out.push({uri:about,title:title||about}); } } var seen={}; return out.filter(function(x){ if(seen[x.uri])return false; seen[x.uri]=1; return true;}); }
+function parseModule(uri,txt){ var doc=parseXML(txt); var title=textOf(doc,['dcterms:title','title','dc:title'])||uri; var id=textOf(doc,['dcterms:identifier','identifier']); var modified=textOf(doc,['dcterms:modified','modified']); var type=[]; Array.prototype.forEach.call(doc.getElementsByTagName('*'),function(n){ if(/type$/i.test(n.nodeName)){ var r=n.getAttribute('rdf:resource')||n.getAttribute('resource')||n.textContent; if(r) type.push(r.trim()); }}); var members=parseResourceRefs(txt).filter(function(r){ return r.uri!==uri; }); return {module:{Title:title,Identifier:id,URI:uri,Modified:modified,Types:type.join('; ')},members:members}; }
+async function exportSelected(){ document.getElementById('log').textContent=''; var sel=modules.filter(function(m){return m.selected;}); if(!sel.length){status('Select at least one module.','err');return;} status('Exporting '+sel.length+' module(s)...'); document.getElementById('exportBtn').disabled=true; var moduleRows=[], artifactRows=[], logRows=[]; for(var i=0;i<sel.length;i++){ var m=sel[i]; try{ log('GET '+m.uri); var txt=await makeReq(withConfig(m.uri)); var parsed=parseModule(m.uri,txt); moduleRows.push(parsed.module); parsed.members.forEach(function(a,idx){ artifactRows.push({ModuleTitle:parsed.module.Title,ModuleURI:m.uri,Sequence:idx+1,ArtifactTitle:a.title,ArtifactURI:a.uri}); }); logRows.push({Level:'INFO',Message:'Exported '+parsed.members.length+' linked/member resource(s)',URI:m.uri}); }catch(e){ moduleRows.push({Title:m.title,Identifier:'',URI:m.uri,Modified:'',Types:''}); logRows.push({Level:'ERROR',Message:e.message,URI:m.uri}); log('ERROR '+m.uri+' -> '+e.message); } }
+ var wb={'Modules':moduleRows,'Artifacts':artifactRows,'Export Log':logRows}; var blob=xlsxBlob(wb); downloadBlob(blob,'doors-next-module-export-'+dateStamp()+'.xlsx'); status('XLSX generated.','ok'); document.getElementById('exportBtn').disabled=false; }
+function dateStamp(){ var d=new Date(),p=function(n){return (n<10?'0':'')+n}; return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate())+'-'+p(d.getHours())+p(d.getMinutes()); }
+function downloadBlob(blob,name){ var a=document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=name; document.body.appendChild(a); a.click(); setTimeout(function(){URL.revokeObjectURL(a.href);a.remove();},500); }
+/* Minimal XLSX writer: creates a valid OpenXML .xlsx ZIP with stored entries. */
+function xlsxBlob(sheets){ var files={}; files['[Content_Types].xml']='<?xml version="1.0" encoding="UTF-8"?><Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>'+Object.keys(sheets).map(function(n,i){return '<Override PartName="/xl/worksheets/sheet'+(i+1)+'.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>';}).join('')+'</Types>'; files['_rels/.rels']='<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>'; files['xl/_rels/workbook.xml.rels']='<?xml version="1.0" encoding="UTF-8"?><Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">'+Object.keys(sheets).map(function(n,i){return '<Relationship Id="rId'+(i+1)+'" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet'+(i+1)+'.xml"/>';}).join('')+'</Relationships>'; files['xl/workbook.xml']='<?xml version="1.0" encoding="UTF-8"?><workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>'+Object.keys(sheets).map(function(n,i){return '<sheet name="'+xmlEsc(n.substring(0,31))+'" sheetId="'+(i+1)+'" r:id="rId'+(i+1)+'"/>';}).join('')+'</sheets></workbook>'; var i=1; Object.keys(sheets).forEach(function(name){ files['xl/worksheets/sheet'+(i++)+'.xml']=sheetXml(sheets[name]); }); return new Blob([zipStore(files)],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}); }
+function sheetXml(rows){ rows=rows||[]; var headers=[]; rows.forEach(function(r){Object.keys(r).forEach(function(k){if(headers.indexOf(k)<0)headers.push(k);});}); if(!headers.length)headers=['No data']; var data=[headers].concat(rows.map(function(r){return headers.map(function(h){return r[h]||'';});})); return '<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>'+data.map(function(row,ri){return '<row r="'+(ri+1)+'">'+row.map(function(v,ci){return '<c r="'+col(ci)+(ri+1)+'" t="inlineStr"><is><t>'+xmlEsc(String(v))+'</t></is></c>';}).join('')+'</row>';}).join('')+'</sheetData></worksheet>'; }
+function col(n){ var s=''; n++; while(n){ var m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=Math.floor((n-m)/26);} return s; }
+function xmlEsc(s){return String(s).replace(/[<>&"']/g,function(c){return {'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;',"'":'&apos;'}[c];});}
+function crc32(str){ var c=~0, i,j; for(i=0;i<str.length;i++){ c^=str.charCodeAt(i); for(j=0;j<8;j++) c=(c>>>1)^(0xEDB88320&-(c&1)); } return (~c)>>>0; }
+function zipStore(files){ var enc=new TextEncoder(), chunks=[], central=[], offset=0; function u16(n){return String.fromCharCode(n&255,(n>>>8)&255)} function u32(n){return u16(n&65535)+u16((n>>>16)&65535)} Object.keys(files).forEach(function(name){ var data=enc.encode(files[name]), nb=enc.encode(name), cr=crc32(String.fromCharCode.apply(null,data)); var local='PK\x03\x04'+u16(20)+u16(0)+u16(0)+u16(0)+u16(0)+u32(cr)+u32(data.length)+u32(data.length)+u16(nb.length)+u16(0); chunks.push(strBytes(local),nb,data); var cent='PK\x01\x02'+u16(20)+u16(20)+u16(0)+u16(0)+u16(0)+u16(0)+u32(cr)+u32(data.length)+u32(data.length)+u16(nb.length)+u16(0)+u16(0)+u16(0)+u16(0)+u32(0)+u32(offset); central.push(strBytes(cent),nb); offset += local.length + nb.length + data.length; }); var csize=central.reduce(function(a,b){return a+b.length;},0); var end='PK\x05\x06'+u16(0)+u16(0)+u16(Object.keys(files).length)+u16(Object.keys(files).length)+u32(csize)+u32(offset)+u16(0); return new Blob(chunks.concat(central).concat([strBytes(end)])); }
+function strBytes(s){ var a=new Uint8Array(s.length); for(var i=0;i<s.length;i++)a[i]=s.charCodeAt(i)&255; return a; }
+init();
+</script>
+</body>
+</html>
+  ]]></Content>
+</Module>
